@@ -1,6 +1,7 @@
 # ComfyUI-Nano-Banana-Resizer
 
-A ComfyUI custom node that automatically calculates optimal output dimensions for Google's Nano Banana (Imagen3) image editing model.
+A ComfyUI custom node that automatically calculates optimal output dimensions for Google's Nano Banana image editing model. 
+Why its needed? To achiev pixel-perfect outputs without shifting/cropping original image.
 
 ## What it does
 
@@ -22,5 +23,6 @@ Without proper resizing, your images may be unexpectedly cropped or distorted by
 3. No configuration needed - it just works!
 
 ## Supported Aspect Ratios
+
 
 1:4, 1:3, 1:2, 9:16, 5:8, 2:3, 3:4, 7:9, 5:6, 1:1, 4:3, 3:2, 8:5, 16:9, 2:1, 3:1, 4:1 and everything in between.
