@@ -72,11 +72,9 @@ class NanoBananaSizeCalculator:
             "required": {
                 "image": ("IMAGE",),
                 "version": (["Nano Banana 1", "Nano Banana 2"], {"default": "Nano Banana 1"}),
-            },
-            "optional": {
-                "resolution": (["Auto", "1K", "2K", "4K"], {
-                    "default": "Auto",
-                    "tooltip": "Force specific tier for Nano Banana 2"
+                "resolution": (["1K", "2K", "4K"], {
+                    "default": "2K",
+                    "tooltip": "Resolution tier (1K for NB1, 1K/2K/4K for NB2)"
                 }),
             }
         }
@@ -86,36 +84,39 @@ class NanoBananaSizeCalculator:
     FUNCTION = "calculate_size"
     CATEGORY = "image/transform"
 
-    def _closest_bucket(self, ar: float, buckets) -> Tuple[int, int]:
-        """Find closest bucket by aspect ratio with no bias"""
-        return min(buckets, key=lambda x: abs(x[0]/x[1] - ar))
-
-    def _auto_tier(self, pixels: int, ar: float) -> str:
+    def _closest_bucket(self, ar: float, buckets, input_pixels: int) -> Tuple[int, int]:
         """
-        Automatically select resolution tier based on input pixels and aspect ratio.
+        Find closest bucket by aspect ratio, preferring buckets that scale UP when aspect ratios are very close.
         
-        Logic:
-        - >= 8MP: Always use 4K
-        - >= 2MP: Use 4K for extreme aspect ratios (>2.5 or <0.4), otherwise 2K
-        - >= 1MP: Use 2K for wide aspect ratios (>2.0 or <0.5), otherwise 1K
-        - < 1MP: Always use 1K
+        Args:
+            ar: Input aspect ratio (width/height)
+            buckets: List of (width, height) tuples
+            input_pixels: Number of pixels in input image
+        
+        Returns:
+            Closest bucket (width, height)
         """
-        if pixels >= 8_000_000:
-            return "4K"
-        if pixels >= 2_000_000:
-            return "4K" if (ar > 2.5 or ar < 0.4) else "2K"
-        if pixels >= 1_000_000:
-            return "2K" if (ar > 2.0 or ar < 0.5) else "1K"
-        return "1K"
+        candidates = []
+        for w, h in buckets:
+            bucket_ar = w / h
+            ar_diff = abs(bucket_ar - ar)
+            bucket_pixels = w * h
+            candidates.append((ar_diff, bucket_pixels, w, h))
+        
+        # Sort by aspect ratio difference first, then by pixel count (prefer larger)
+        # If AR difference is within 0.005 (0.5%), prefer the bucket with more pixels
+        candidates.sort(key=lambda x: (x[0], -x[1] if x[0] < 0.005 else 0))
+        
+        return (candidates[0][2], candidates[0][3])
 
-    def calculate_size(self, image, version: str, resolution: str = "Auto"):
+    def calculate_size(self, image, version: str, resolution: str):
         """
         Calculate optimal output dimensions for Nano Banana models.
         
         Args:
             image: Input image tensor (batch, height, width, channels)
             version: "Nano Banana 1" or "Nano Banana 2"
-            resolution: "Auto", "1K", "2K", or "4K" (only for NB2)
+            resolution: "1K", "2K", or "4K"
         
         Returns:
             tuple: (output_width, output_height, info_string)
@@ -127,23 +128,19 @@ class NanoBananaSizeCalculator:
         pixels = w * h
 
         if version == "Nano Banana 1":
-            w_out, h_out = self._closest_bucket(ar, self.BUCKETS_NB1)
+            # NB1 only uses its ~1MP buckets (ignore resolution parameter)
+            w_out, h_out = self._closest_bucket(ar, self.BUCKETS_NB1, pixels)
             info = f"Nano Banana 1 • {w_out}×{h_out} • Input: {w}×{h}"
 
         else:  # Nano Banana 2
-            if resolution == "Auto":
-                tier = self._auto_tier(pixels, ar)
-            else:
-                tier = resolution
-            
             buckets = {
                 "1K": self.BUCKETS_NB2_1K,
                 "2K": self.BUCKETS_NB2_2K,
                 "4K": self.BUCKETS_NB2_4K,
-            }[tier]
+            }[resolution]
             
-            w_out, h_out = self._closest_bucket(ar, buckets)
-            info = f"Nano Banana 2 {tier} • {w_out}×{h_out} • Input: {w}×{h}"
+            w_out, h_out = self._closest_bucket(ar, buckets, pixels)
+            info = f"Nano Banana 2 {resolution} • {w_out}×{h_out} • Input: {w}×{h}"
 
         return (w_out, h_out, info)
 
