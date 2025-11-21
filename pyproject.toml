@@ -28,7 +28,7 @@ Documentation = "https://github.com/comrender/ComfyUI-Nano-Banana-Resizer/wiki"
 "Bug Tracker" = "https://github.com/comrender/ComfyUI-Nano-Banana-Resizer/issues"
 
 [tool.comfy]
-PublisherId = "comrender"
+PublisherId = "ComRender"
 DisplayName = "ComfyUI-Nano-Banana-Resizer"
 Icon = ""
 includes = [] 
