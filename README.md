@@ -3,6 +3,9 @@
 A ComfyUI custom node that automatically calculates optimal output dimensions for Google's Nano Banana image editing model. 
 Why its needed? To achiev pixel-perfect outputs without shifting/cropping original image.
 
+## Updates
+21112025 Added Support for Nano Banana II with 1K,2K,4K resolution.
+
 ## What it does
 
 Nano Banana requires specific input dimensions (~1MP, divisible by 32) and uses aspect ratio bucketing. This node:
@@ -26,3 +29,4 @@ Without proper resizing, your images may be unexpectedly cropped or distorted by
 
 
 1:4, 1:3, 1:2, 9:16, 5:8, 2:3, 3:4, 7:9, 5:6, 1:1, 4:3, 3:2, 8:5, 16:9, 2:1, 3:1, 4:1 and everything in between.
+
