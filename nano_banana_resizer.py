@@ -1,10 +1,10 @@
 """
 nano_banana_resizer.py
 
-Nano Banana Size Calculator – NB1 + NB2 with fixed tier switching & exact matching
+Nano Banana Size Calculator – NB1 + NB2 with fixed tier switching & Euclidean distance matching
 """
 
-from typing import Tuple
+from typing import Tuple, List
 
 class NanoBananaSizeCalculator:
     # ──────────────────────────────────────────────────────────────
@@ -71,11 +71,13 @@ class NanoBananaSizeCalculator:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "version": (["Nano Banana 1", "Nano Banana 2"], {"default": "Nano Banana 1"}),
-                "resolution": (["1K", "2K", "4K"], {
-                    "default": "2K",
-                    "tooltip": "Resolution tier (1K for NB1, 1K/2K/4K for NB2)"
-                }),
+                # Merged Version and Resolution to strictly control valid combinations
+                "preset": ([
+                    "Nano Banana 1",
+                    "Nano Banana 2 (1K)",
+                    "Nano Banana 2 (2K)",
+                    "Nano Banana 2 (4K)"
+                ], {"default": "Nano Banana 2 (2K)"}),
             }
         }
 
@@ -84,39 +86,37 @@ class NanoBananaSizeCalculator:
     FUNCTION = "calculate_size"
     CATEGORY = "image/transform"
 
-    def _closest_bucket(self, ar: float, buckets, input_pixels: int) -> Tuple[int, int]:
+    def _closest_bucket(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
         """
-        Find closest bucket by aspect ratio, preferring buckets that scale UP when aspect ratios are very close.
+        Find closest bucket by Euclidean distance in pixel space.
+        This matches buckets based on physical closeness rather than pure Aspect Ratio.
         
         Args:
-            ar: Input aspect ratio (width/height)
+            w_in: Input image width
+            h_in: Input image height
             buckets: List of (width, height) tuples
-            input_pixels: Number of pixels in input image
         
         Returns:
             Closest bucket (width, height)
         """
         candidates = []
-        for w, h in buckets:
-            bucket_ar = w / h
-            ar_diff = abs(bucket_ar - ar)
-            bucket_pixels = w * h
-            candidates.append((ar_diff, bucket_pixels, w, h))
+        for w_bucket, h_bucket in buckets:
+            # Calculate Euclidean distance squared (no need for sqrt for comparison)
+            # This effectively finds the bucket that requires the least stretching/cropping
+            dist_sq = (w_in - w_bucket) ** 2 + (h_in - h_bucket) ** 2
+            candidates.append((dist_sq, w_bucket, h_bucket))
         
-        # Sort by aspect ratio difference first, then by pixel count (prefer larger)
-        # If AR difference is within 0.005 (0.5%), prefer the bucket with more pixels
-        candidates.sort(key=lambda x: (x[0], -x[1] if x[0] < 0.005 else 0))
+        # Sort by smallest distance
+        candidates.sort(key=lambda x: x[0])
         
-        return (candidates[0][2], candidates[0][3])
+        return (candidates[0][1], candidates[0][2])
 
-    def calculate_size(self, image, version: str, resolution: str):
+    def calculate_size(self, image, preset: str):
         """
         Calculate optimal output dimensions for Nano Banana models.
-        
         Args:
             image: Input image tensor (batch, height, width, channels)
-            version: "Nano Banana 1" or "Nano Banana 2"
-            resolution: "1K", "2K", or "4K"
+            preset: Selected preset string
         
         Returns:
             tuple: (output_width, output_height, info_string)
@@ -124,23 +124,25 @@ class NanoBananaSizeCalculator:
         # Get input dimensions from tensor
         # ComfyUI image format is (batch, height, width, channels)
         _, h, w, _ = image.shape
-        ar = w / h
-        pixels = w * h
 
-        if version == "Nano Banana 1":
-            # NB1 only uses its ~1MP buckets (ignore resolution parameter)
-            w_out, h_out = self._closest_bucket(ar, self.BUCKETS_NB1, pixels)
-            info = f"Nano Banana 1 • {w_out}×{h_out} • Input: {w}×{h}"
+        # Determine buckets based on preset
+        if preset == "Nano Banana 1":
+            target_buckets = self.BUCKETS_NB1
+            version_info = "Nano Banana 1"
+        elif "1K" in preset:
+            target_buckets = self.BUCKETS_NB2_1K
+            version_info = "Nano Banana 2 (1K)"
+        elif "2K" in preset:
+            target_buckets = self.BUCKETS_NB2_2K
+            version_info = "Nano Banana 2 (2K)"
+        else: # 4K
+            target_buckets = self.BUCKETS_NB2_4K
+            version_info = "Nano Banana 2 (4K)"
 
-        else:  # Nano Banana 2
-            buckets = {
-                "1K": self.BUCKETS_NB2_1K,
-                "2K": self.BUCKETS_NB2_2K,
-                "4K": self.BUCKETS_NB2_4K,
-            }[resolution]
-            
-            w_out, h_out = self._closest_bucket(ar, buckets, pixels)
-            info = f"Nano Banana 2 {resolution} • {w_out}×{h_out} • Input: {w}×{h}"
+        # Calculate using Euclidean distance logic (uses raw w/h instead of AR)
+        w_out, h_out = self._closest_bucket(w, h, target_buckets)
+        
+        info = f"{version_info} • {w_out}×{h_out} • Input: {w}×{h}"
 
         return (w_out, h_out, info)
 
