@@ -73,10 +73,12 @@ class NanoBananaSizeCalculator:
 
     def _closest_bucket(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
         """
-        Find closest bucket by Euclidean distance. 
-        If the closest bucket is still "far away" (high distance) and we are using NB2,
-        dynamically calculate a resolution divisible by 32 to act as a 'Pro' fallback.
+        Hybrid Logic: 
+        1. Find closest hardcoded bucket (Euclidean distance).
+        2. If distance is too high (i.e., aspect ratio is not covered), 
+           use a dynamic Ceiling calculation to guarantee a non-cropping, 32-aligned size.
         """
+        # 1. Try to find a match in the hardcoded list first
         candidates = []
         for w_bucket, h_bucket in buckets:
             # Calculate Euclidean distance squared
@@ -86,32 +88,26 @@ class NanoBananaSizeCalculator:
         candidates.sort(key=lambda x: x[0])
         best_dist, best_w, best_h = candidates[0]
 
-        # ──────────────────────────────────────────────────────────────
-        # HYBRID FIX: Safety Net for "Pro" Dynamic Sizes
-        # ──────────────────────────────────────────────────────────────
-        # If the best match has a distance squared > 2000 (meaning it's a bad fit)
-        # AND we are using a dense list (NB2), we calculate valid dims dynamically.
-        # This handles random aspect ratios that aren't in the hardcoded list.
-        if best_dist > 2000 and len(buckets) > 20:
-            # Calculate target pixel count based on the preset's average
-            # (e.g., 2K preset ~ 4.2MP)
-            avg_pixels = sum(b[0]*b[1] for b in buckets) / len(buckets)
+        # 2. Safety Check: If the "best" match is too far away (e.g., dist_sq > 2000),
+        # use the reverse-engineered dynamic calculation ("Pro" Ceiling logic).
+        # This handles random/weird aspect ratios without error.
+        if best_dist > 2000 and len(buckets) > 20: # Only applies to NB2 (Dense) lists
+            import math
             
-            aspect = w_in / h_in
-            if aspect == 0: aspect = 1.0 # Prevent div by zero
+            # Use the input image dimensions for the dynamic calculation
+            w_new = w_in
+            h_new = h_in
             
-            # h = sqrt(Area / Aspect)
-            h_new = math.sqrt(avg_pixels / aspect)
-            w_new = h_new * aspect
-            
-            # Round to nearest multiple of 32 (Standard requirement)
-            w_dynamic = round(w_new / 32) * 32
-            h_dynamic = round(h_new / 32) * 32
+            # --- APPLY CEILING LOGIC ---
+            # w_out = ceil(W / 32) * 32
+            # This ensures the dimension is always rounded UP to prevent cropping.
+            w_dynamic = math.ceil(w_new / 32) * 32
+            h_dynamic = math.ceil(h_new / 32) * 32
             
             # Return dynamic calculation
-            return (w_dynamic, h_dynamic)
+            return (int(w_dynamic), int(h_dynamic))
 
-        # Otherwise, return the matched bucket
+        # Otherwise, return the matched bucket (which is perfect, or close enough)
         return (best_w, best_h)
 
     def calculate_size(self, image, preset: str):
@@ -144,3 +140,4 @@ class NanoBananaSizeCalculator:
 
 NODE_CLASS_MAPPINGS = {"NanoBananaSizeCalculator": NanoBananaSizeCalculator}
 NODE_DISPLAY_NAME_MAPPINGS = {"NanoBananaSizeCalculator": "Nano Banana Size Calculator"}
+
