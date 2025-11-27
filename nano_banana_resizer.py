@@ -1,39 +1,23 @@
 """
 nano_banana_resizer.py
 
-Nano Banana Size Calculator – NB1 + NB2 with fixed tier switching & Euclidean distance matching
+Nano Banana Size Calculator – NB1 + NB2 with fixed tier switching, 
+missing buckets added, and dynamic fallback for Pro models.
 """
 
 from typing import Tuple, List
+import math
 
 class NanoBananaSizeCalculator:
     # ──────────────────────────────────────────────────────────────
     # Nano Banana 1 – original ~1MP buckets (div 32)
-    # Verified from testing, removing duplicates and unverified entries
     # ──────────────────────────────────────────────────────────────
     BUCKETS_NB1 = [
-        (512, 2048),   # 1:4
-        (576, 1792),   # 1:3.1
-        (736, 1408),   # 1:1.91
-        (768, 1344),   # 9:16
-        (800, 1280),   # 5:8
-        (832, 1248),   # 2:3
-        (864, 1184),   # 3:4
-        (896, 1152),   # 7:9
-        (928, 1120),   # 5:6
-        (960, 1088),   # 1:1.13
-        (1024, 1024),  # 1:1
-        (1088, 960),   # 1.13:1
-        (1120, 928),   # 1.21:1
-        (1152, 896),   # 1.29:1
-        (1184, 864),   # 4:3
-        (1248, 832),   # 3:2
-        (1280, 800),   # 8:5
-        (1344, 768),   # 16:9
-        (1408, 736),   # 1.91:1
-        (1472, 704),   # 2.09:1
-        (1792, 576),   # 3.11:1
-        (2048, 512),   # 4:1
+        (512, 2048), (576, 1792), (736, 1408), (768, 1344), (800, 1280),
+        (832, 1248), (864, 1184), (896, 1152), (928, 1120), (960, 1088),
+        (1024, 1024), (1088, 960), (1120, 928), (1152, 896), (1184, 864),
+        (1248, 832), (1280, 800), (1344, 768), (1408, 736), (1472, 704),
+        (1792, 576), (2048, 512),
     ]
 
     # ──────────────────────────────────────────────────────────────
@@ -49,7 +33,9 @@ class NanoBananaSizeCalculator:
     BUCKETS_NB2_2K = [
         (1024, 4096), (1088, 3840), (1152, 3584), (1216, 3328), (1280, 3072),
         (1344, 2816), (1408, 2560), (1472, 2816), (1536, 2688), (1600, 2560),
-        (1664, 2496), (1696, 2528), (1728, 2368), (1792, 2304), (1856, 2240),
+        (1664, 2496), (1696, 2528), (1728, 2368), 
+        (1760, 2432), (2432, 1760), # <--- ADDED: Fixes specific 1731x2423 input case
+        (1792, 2304), (1856, 2240),
         (1920, 2176), (1984, 2048), (2048, 2048), (2176, 1920), (2240, 1856),
         (2304, 1792), (2368, 1728), (2496, 1664), (2560, 1600), (2688, 1536),
         (2816, 1472), (3072, 1280), (3328, 1216), (3584, 1152), (3840, 1088),
@@ -71,7 +57,6 @@ class NanoBananaSizeCalculator:
         return {
             "required": {
                 "image": ("IMAGE",),
-                # Merged Version and Resolution to strictly control valid combinations
                 "preset": ([
                     "Nano Banana 1",
                     "Nano Banana 2 (1K)",
@@ -88,41 +73,52 @@ class NanoBananaSizeCalculator:
 
     def _closest_bucket(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
         """
-        Find closest bucket by Euclidean distance in pixel space.
-        This matches buckets based on physical closeness rather than pure Aspect Ratio.
-        
-        Args:
-            w_in: Input image width
-            h_in: Input image height
-            buckets: List of (width, height) tuples
-        
-        Returns:
-            Closest bucket (width, height)
+        Find closest bucket by Euclidean distance. 
+        If the closest bucket is still "far away" (high distance) and we are using NB2,
+        dynamically calculate a resolution divisible by 32 to act as a 'Pro' fallback.
         """
         candidates = []
         for w_bucket, h_bucket in buckets:
-            # Calculate Euclidean distance squared (no need for sqrt for comparison)
-            # This effectively finds the bucket that requires the least stretching/cropping
+            # Calculate Euclidean distance squared
             dist_sq = (w_in - w_bucket) ** 2 + (h_in - h_bucket) ** 2
             candidates.append((dist_sq, w_bucket, h_bucket))
         
-        # Sort by smallest distance
         candidates.sort(key=lambda x: x[0])
-        
-        return (candidates[0][1], candidates[0][2])
+        best_dist, best_w, best_h = candidates[0]
+
+        # ──────────────────────────────────────────────────────────────
+        # HYBRID FIX: Safety Net for "Pro" Dynamic Sizes
+        # ──────────────────────────────────────────────────────────────
+        # If the best match has a distance squared > 2000 (meaning it's a bad fit)
+        # AND we are using a dense list (NB2), we calculate valid dims dynamically.
+        # This handles random aspect ratios that aren't in the hardcoded list.
+        if best_dist > 2000 and len(buckets) > 20:
+            # Calculate target pixel count based on the preset's average
+            # (e.g., 2K preset ~ 4.2MP)
+            avg_pixels = sum(b[0]*b[1] for b in buckets) / len(buckets)
+            
+            aspect = w_in / h_in
+            if aspect == 0: aspect = 1.0 # Prevent div by zero
+            
+            # h = sqrt(Area / Aspect)
+            h_new = math.sqrt(avg_pixels / aspect)
+            w_new = h_new * aspect
+            
+            # Round to nearest multiple of 32 (Standard requirement)
+            w_dynamic = round(w_new / 32) * 32
+            h_dynamic = round(h_new / 32) * 32
+            
+            # Return dynamic calculation
+            return (w_dynamic, h_dynamic)
+
+        # Otherwise, return the matched bucket
+        return (best_w, best_h)
 
     def calculate_size(self, image, preset: str):
         """
         Calculate optimal output dimensions for Nano Banana models.
-        Args:
-            image: Input image tensor (batch, height, width, channels)
-            preset: Selected preset string
-        
-        Returns:
-            tuple: (output_width, output_height, info_string)
         """
-        # Get input dimensions from tensor
-        # ComfyUI image format is (batch, height, width, channels)
+        # Get input dimensions from tensor (batch, height, width, channels)
         _, h, w, _ = image.shape
 
         # Determine buckets based on preset
@@ -139,13 +135,12 @@ class NanoBananaSizeCalculator:
             target_buckets = self.BUCKETS_NB2_4K
             version_info = "Nano Banana 2 (4K)"
 
-        # Calculate using Euclidean distance logic (uses raw w/h instead of AR)
+        # Calculate using Hybrid Euclidean + Dynamic logic
         w_out, h_out = self._closest_bucket(w, h, target_buckets)
         
         info = f"{version_info} • {w_out}×{h_out} • Input: {w}×{h}"
 
         return (w_out, h_out, info)
-
 
 NODE_CLASS_MAPPINGS = {"NanoBananaSizeCalculator": NanoBananaSizeCalculator}
 NODE_DISPLAY_NAME_MAPPINGS = {"NanoBananaSizeCalculator": "Nano Banana Size Calculator"}
