@@ -2,7 +2,7 @@
 nano_banana_resizer.py
 
 Nano Banana Size Calculator – NB1 + NB2 with fixed tier switching, 
-missing buckets added, and dynamic fallback for Pro models.
+missing buckets added, and robust dynamic fallback for Pro models.
 """
 
 from typing import Tuple, List
@@ -34,7 +34,7 @@ class NanoBananaSizeCalculator:
         (1024, 4096), (1088, 3840), (1152, 3584), (1216, 3328), (1280, 3072),
         (1344, 2816), (1408, 2560), (1472, 2816), (1536, 2688), (1600, 2560),
         (1664, 2496), (1696, 2528), (1728, 2368), 
-        (1760, 2432), (2432, 1760), # <--- ADDED: Fixes specific 1731x2423 input case
+        (1760, 2432), (2432, 1760), # Fix for the 1760x2432 case
         (1792, 2304), (1856, 2240),
         (1920, 2176), (1984, 2048), (2048, 2048), (2176, 1920), (2240, 1856),
         (2304, 1792), (2368, 1728), (2496, 1664), (2560, 1600), (2688, 1536),
@@ -72,25 +72,35 @@ class NanoBananaSizeCalculator:
     CATEGORY = "image/transform"
 
     def _closest_bucket(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
-        # ... (Euclidean distance calculation remains the same) ...
+        """
+        Hybrid Logic: 
+        1. Find closest hardcoded bucket (Euclidean distance).
+        2. If distance is too high (> 8000), use the Ceiling-based dynamic calculation.
+        """
+        # --- FIX: candidates initialization added/verified here ---
+        candidates = [] 
+        # -----------------------------------------------------------
+        
+        for w_bucket, h_bucket in buckets:
+            # Calculate Euclidean distance squared
+            dist_sq = (w_in - w_bucket) ** 2 + (h_in - h_bucket) ** 2
+            candidates.append((dist_sq, w_bucket, h_bucket))
+        
         candidates.sort(key=lambda x: x[0])
         best_dist, best_w, best_h = candidates[0]
 
-        # ──────────────────────────────────────────────────────────────
-        # FINAL LOGIC: Check if the best bucket is a true outlier (High Priority Bucket Check)
-        # ──────────────────────────────────────────────────────────────
-        # We raise the threshold significantly (e.g., to 8000) to ensure fixed buckets
-        # are chosen unless the input is extremely unusual.
+        # Safety Check: If the best match has a very high distance, use dynamic logic.
+        # Threshold 8000 ensures fixed buckets are prioritized unless the input is extreme.
         if best_dist > 8000 and len(buckets) > 20: 
-            import math
             
             w_new = w_in
             h_new = h_in
             
-            # Use the Ceil Logic only when the bucket match is truly terrible
+            # Use the Ceiling Logic (Round UP to next 32) to prevent cropping
             w_dynamic = math.ceil(w_new / 32) * 32
             h_dynamic = math.ceil(h_new / 32) * 32
             
+            # Return dynamic calculation (cast to int for RETURN_TYPES)
             return (int(w_dynamic), int(h_dynamic))
 
         # Otherwise, stick with the closest fixed bucket
@@ -126,5 +136,3 @@ class NanoBananaSizeCalculator:
 
 NODE_CLASS_MAPPINGS = {"NanoBananaSizeCalculator": NanoBananaSizeCalculator}
 NODE_DISPLAY_NAME_MAPPINGS = {"NanoBananaSizeCalculator": "Nano Banana Size Calculator"}
-
-
