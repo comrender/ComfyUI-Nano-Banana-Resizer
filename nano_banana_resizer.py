@@ -1,16 +1,30 @@
 """
 nano_banana_resizer.py
 
-Nano Banana Size Calculator – Final version with fixed buckets, ceiling logic 
-for dynamic resizing, and a manual override for ambiguous bucket zones.
+Final version with AR detection, fixed buckets, ceiling logic for dynamic 
+resizing, and manual override for ambiguous bucket zones.
 """
 
 from typing import Tuple, List
 import math
 
 class NanoBananaSizeCalculator:
+    # Supported Aspect Ratios for Nano Banana/Gemini API (W:H format)
+    SUPPORTED_ARS = {
+        "1:1": 1.0, 
+        "3:2": 1.5, 
+        "2:3": 0.666667, # Precise 2/3
+        "3:4": 0.75, 
+        "4:3": 1.333333, # Precise 4/3
+        "4:5": 0.8, 
+        "5:4": 1.25, 
+        "9:16": 0.5625, 
+        "16:9": 1.777778, # Precise 16/9
+        "21:9": 2.333333
+    }
+
     # ──────────────────────────────────────────────────────────────
-    # Nano Banana 1 – original ~1MP buckets (div 32)
+    # BUCKETS (Unchanged from final fix)
     # ──────────────────────────────────────────────────────────────
     BUCKETS_NB1 = [
         (512, 2048), (576, 1792), (736, 1408), (768, 1344), (800, 1280),
@@ -20,9 +34,6 @@ class NanoBananaSizeCalculator:
         (1792, 576), (2048, 512),
     ]
 
-    # ──────────────────────────────────────────────────────────────
-    # Nano Banana 2 – dense buckets (all div 32)
-    # ──────────────────────────────────────────────────────────────
     BUCKETS_NB2_1K = [
         (768, 1344), (800, 1280), (832, 1248), (864, 1184), (896, 1152),
         (928, 1120), (960, 1088), (992, 1056), (1024, 1024), (1056, 992),
@@ -66,10 +77,36 @@ class NanoBananaSizeCalculator:
             }
         }
 
-    RETURN_TYPES = ("INT", "INT", "STRING")
-    RETURN_NAMES = ("width", "height", "info")
+    # ──────────────────────────────────────────────────────────────
+    # NEW: Added aspect_ratio to the return signature
+    # ──────────────────────────────────────────────────────────────
+    RETURN_TYPES = ("INT", "INT", "STRING", "STRING")
+    RETURN_NAMES = ("width", "height", "info", "aspect_ratio")
     FUNCTION = "calculate_size"
     CATEGORY = "image/transform"
+
+    def _detect_aspect_ratio(self, w: int, h: int) -> str:
+        """Finds the closest supported aspect ratio string for the given dimensions."""
+        if h == 0:
+            return "auto"
+
+        current_ar = w / h
+        min_diff = float('inf')
+        best_ar_str = "auto"
+
+        for ar_str, ar_val in self.SUPPORTED_ARS.items():
+            diff = abs(current_ar - ar_val)
+            if diff < min_diff:
+                min_diff = diff
+                best_ar_str = ar_str
+        
+        # If the detected AR is extremely far from any supported AR, return "auto"
+        # 0.01 is generally sufficient to cover rounding differences in buckets.
+        if min_diff > 0.01: 
+            return "auto" 
+            
+        return best_ar_str
+
 
     def _closest_bucket(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
         
@@ -83,17 +120,13 @@ class NanoBananaSizeCalculator:
         best_dist, best_w, best_h = candidates[0]
 
         # ──────────────────────────────────────────────────────────────────────
-        # MANUAL OVERRIDE FIX: Ambiguity Zone (1704x2461 case)
-        # The model ignores the lowest Euclidean score (1664x2496) for this input
-        # and prefers 1696x2528 due to unquantifiable AR/Pixel weighting.
-        # We manually enforce the model's preferred bucket if the input is in this zone.
+        # MANUAL OVERRIDE FIX: Ambiguity Zone (for cases like 1704x2461)
         # ──────────────────────────────────────────────────────────────────────
         w_target, h_target = (1696, 2528)
         
         if 1650 < w_in < 1750 and 2350 < h_in < 2550:
             override_dist_sq = (w_in - w_target) ** 2 + (h_in - h_target) ** 2
 
-            # If the preferred bucket (1696x2528) is still within a reasonable distance (8000), use it.
             if override_dist_sq < 8000:
                  return (w_target, h_target)
         
@@ -105,13 +138,12 @@ class NanoBananaSizeCalculator:
             w_new = w_in
             h_new = h_in
             
-            # Use Ceiling Logic (Round UP to next 32) to prevent cropping
             w_dynamic = math.ceil(w_new / 32) * 32
             h_dynamic = math.ceil(h_new / 32) * 32
             
             return (int(w_dynamic), int(h_dynamic))
 
-        # Otherwise, stick with the closest fixed bucket (or the one chosen by the override logic)
+        # Otherwise, stick with the closest fixed bucket
         return (best_w, best_h)
 
     def calculate_size(self, image, preset: str):
@@ -131,11 +163,15 @@ class NanoBananaSizeCalculator:
             target_buckets = self.BUCKETS_NB2_4K
             version_info = "Nano Banana 2 (4K)"
 
+        # Calculate best size
         w_out, h_out = self._closest_bucket(w, h, target_buckets)
         
-        info = f"{version_info} • {w_out}×{h_out} • Input: {w}×{h}"
+        # NEW: Detect aspect ratio
+        aspect_ratio = self._detect_aspect_ratio(w_out, h_out)
+        
+        info = f"{version_info} • {w_out}×{h_out} • AR: {aspect_ratio} • Input: {w}×{h}"
 
-        return (w_out, h_out, info)
+        return (w_out, h_out, info, aspect_ratio)
 
 NODE_CLASS_MAPPINGS = {"NanoBananaSizeCalculator": NanoBananaSizeCalculator}
 NODE_DISPLAY_NAME_MAPPINGS = {"NanoBananaSizeCalculator": "Nano Banana Size Calculator"}
