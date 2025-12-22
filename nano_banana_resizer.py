@@ -1,8 +1,8 @@
 """
 nano_banana_resizer.py
 
-Final version with AR detection, fixed buckets, ceiling logic for dynamic 
-resizing, and manual override for ambiguous bucket zones.
+Final version with AR detection (Strict Mode), fixed buckets, ceiling logic 
+for dynamic resizing, and manual override for ambiguous bucket zones.
 """
 
 from typing import Tuple, List
@@ -24,7 +24,7 @@ class NanoBananaSizeCalculator:
     }
 
     # ──────────────────────────────────────────────────────────────
-    # BUCKETS (Unchanged from final fix)
+    # BUCKETS
     # ──────────────────────────────────────────────────────────────
     BUCKETS_NB1 = [
         (512, 2048), (576, 1792), (736, 1408), (768, 1344), (800, 1280),
@@ -46,11 +46,11 @@ class NanoBananaSizeCalculator:
         (1344, 2816), (1408, 2560), (1472, 2816), (1536, 2688), (1600, 2560),
         (1664, 2496), (1696, 2528), (1728, 2368), 
         (1760, 2432), (2432, 1760), 
-        (1792, 2304), (1856, 2240),
-        (1920, 2176), (1984, 2048), (2048, 2048), (2176, 1920), (2240, 1856),
-        (2304, 1792), (2368, 1728), (2496, 1664), (2560, 1600), (2688, 1536),
-        (2816, 1472), (3072, 1280), (3328, 1216), (3584, 1152), (3840, 1088),
-        (4096, 1024),
+        (1792, 2304), (1792, 2400), (2400, 1792), # Added missing buckets
+        (1856, 2240), (1920, 2176), (1984, 2048), (2048, 2048), (2176, 1920), 
+        (2240, 1856), (2304, 1792), (2368, 1728), (2496, 1664), (2560, 1600), 
+        (2688, 1536), (2816, 1472), (3072, 1280), (3328, 1216), (3584, 1152), 
+        (3840, 1088), (4096, 1024),
     ]
 
     BUCKETS_NB2_4K = [
@@ -77,9 +77,6 @@ class NanoBananaSizeCalculator:
             }
         }
 
-    # ──────────────────────────────────────────────────────────────
-    # NEW: Added aspect_ratio to the return signature
-    # ──────────────────────────────────────────────────────────────
     RETURN_TYPES = ("INT", "INT", "STRING", "STRING")
     RETURN_NAMES = ("width", "height", "info", "aspect_ratio")
     FUNCTION = "calculate_size"
@@ -88,11 +85,11 @@ class NanoBananaSizeCalculator:
     def _detect_aspect_ratio(self, w: int, h: int) -> str:
         """Finds the closest supported aspect ratio string for the given dimensions."""
         if h == 0:
-            return "auto"
+            return "1:1" # Safe default to avoid 'auto' or errors
 
         current_ar = w / h
         min_diff = float('inf')
-        best_ar_str = "auto"
+        best_ar_str = "1:1" # Default fallback
 
         for ar_str, ar_val in self.SUPPORTED_ARS.items():
             diff = abs(current_ar - ar_val)
@@ -100,13 +97,8 @@ class NanoBananaSizeCalculator:
                 min_diff = diff
                 best_ar_str = ar_str
         
-        # If the detected AR is extremely far from any supported AR, return "auto"
-        # 0.01 is generally sufficient to cover rounding differences in buckets.
-        if min_diff > 0.01: 
-            return "auto" 
-            
+        # 'Auto' logic removed; always returns the closest match.
         return best_ar_str
-
 
     def _closest_bucket(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
         
@@ -166,7 +158,7 @@ class NanoBananaSizeCalculator:
         # Calculate best size
         w_out, h_out = self._closest_bucket(w, h, target_buckets)
         
-        # NEW: Detect aspect ratio
+        # Detect aspect ratio (Strict)
         aspect_ratio = self._detect_aspect_ratio(w_out, h_out)
         
         info = f"{version_info} • {w_out}×{h_out} • AR: {aspect_ratio} • Input: {w}×{h}"
