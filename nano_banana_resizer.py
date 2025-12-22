@@ -45,7 +45,7 @@ class NanoBananaSizeCalculator:
         (1024, 4096), (1088, 3840), (1152, 3584), (1216, 3328), (1280, 3072),
         (1344, 2816), (1408, 2560), (1472, 2816), (1536, 2688), (1600, 2560),
         (1664, 2496), (1696, 2528), (1728, 2368), 
-        (1760, 2432), (2432, 1760), 
+        # REMOVED: (1760, 2432) and inverse - causing false positive matches
         (1792, 2304), (1792, 2400), (2400, 1792), # Added missing buckets
         (1856, 2240), (1920, 2176), (1984, 2048), (2048, 2048), (2176, 1920), 
         (2240, 1856), (2304, 1792), (2368, 1728), (2496, 1664), (2560, 1600), 
@@ -85,11 +85,11 @@ class NanoBananaSizeCalculator:
     def _detect_aspect_ratio(self, w: int, h: int) -> str:
         """Finds the closest supported aspect ratio string for the given dimensions."""
         if h == 0:
-            return "1:1" # Safe default to avoid 'auto' or errors
+            return "1:1" 
 
         current_ar = w / h
         min_diff = float('inf')
-        best_ar_str = "1:1" # Default fallback
+        best_ar_str = "1:1" 
 
         for ar_str, ar_val in self.SUPPORTED_ARS.items():
             diff = abs(current_ar - ar_val)
@@ -97,7 +97,6 @@ class NanoBananaSizeCalculator:
                 min_diff = diff
                 best_ar_str = ar_str
         
-        # 'Auto' logic removed; always returns the closest match.
         return best_ar_str
 
     def _closest_bucket(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
@@ -112,15 +111,19 @@ class NanoBananaSizeCalculator:
         best_dist, best_w, best_h = candidates[0]
 
         # ──────────────────────────────────────────────────────────────────────
-        # MANUAL OVERRIDE FIX: Ambiguity Zone (for cases like 1704x2461)
+        # MANUAL OVERRIDES
         # ──────────────────────────────────────────────────────────────────────
-        w_target, h_target = (1696, 2528)
         
-        if 1650 < w_in < 1750 and 2350 < h_in < 2550:
-            override_dist_sq = (w_in - w_target) ** 2 + (h_in - h_target) ** 2
+        # Override 1: Fix for 1731x2423 -> 1792x2400 (Forces 3:4 match)
+        if 1700 < w_in < 1760 and 2380 < h_in < 2460:
+             return (1792, 2400)
 
+        # Override 2: Ambiguity Zone (for cases like 1704x2461)
+        w_target_2, h_target_2 = (1696, 2528)
+        if 1650 < w_in < 1750 and 2460 < h_in < 2550:
+            override_dist_sq = (w_in - w_target_2) ** 2 + (h_in - h_target_2) ** 2
             if override_dist_sq < 8000:
-                 return (w_target, h_target)
+                 return (w_target_2, h_target_2)
         
         # ──────────────────────────────────────────────────────────────────────
         # Fallback to Dynamic Ceiling Logic for True Outliers (Dist_sq > 8000)
