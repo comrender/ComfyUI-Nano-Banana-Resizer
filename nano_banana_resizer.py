@@ -69,15 +69,20 @@ class NanoBananaSizeCalculator:
             "required": {
                 "image": ("IMAGE",),
                 "preset": ([
-                    "Nano Banana 1",
-                    "Nano Banana 2 (1K)",
-                    "Nano Banana 2 (2K)",
-                    "Nano Banana 2 (4K)"
-                ], {"default": "Nano Banana 2 (2K)"}),
+                    "NB 1",
+                    "NB 2 (1K)",
+                    "NB 2 (2K)",
+                    "NB 2 (4K)"
+                ], {"default": "NB 2 (2K)"}),
+                "method": ([
+                    "Clamp (reccomended)",
+                    "Dynamic (legacy)",
+                    "Static",
+                ], {"default": "Clamp (reccomended)"}),
             }
         }
 
-    RETURN_TYPES = ("INT", "INT", "STRING", "STRING")
+    RETURN_TYPES = ("INT", "INT", "STRING", "*")
     RETURN_NAMES = ("width", "height", "info", "aspect_ratio")
     FUNCTION = "calculate_size"
     CATEGORY = "image/transform"
@@ -99,7 +104,13 @@ class NanoBananaSizeCalculator:
         
         return best_ar_str
 
-    def _closest_bucket(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
+    def _closest_bucket(
+        self,
+        w_in: int,
+        h_in: int,
+        buckets: List[Tuple[int, int]],
+        method: str,
+    ) -> Tuple[int, int]:
         
         # 1. Calculate all distances
         candidates = [] 
@@ -135,36 +146,60 @@ class NanoBananaSizeCalculator:
             
             w_dynamic = math.ceil(w_new / 32) * 32
             h_dynamic = math.ceil(h_new / 32) * 32
-            
-            return (int(w_dynamic), int(h_dynamic))
+
+            if method == "Dynamic (legacy)":
+                return (int(w_dynamic), int(h_dynamic))
+
+            if method == "Static":
+                return (best_w, best_h)
+
+            # Default/recommended: clamp the dynamic size to the closest real bucket.
+            # This mirrors Nano Banana behavior when it snaps unsupported sizes.
+            w_target = int(w_dynamic)
+            h_target = int(h_dynamic)
+            best_clamp_dist = float("inf")
+            best_clamp = (best_w, best_h)
+            for w_bucket, h_bucket in buckets:
+                dist_sq = (w_target - w_bucket) ** 2 + (h_target - h_bucket) ** 2
+                if dist_sq < best_clamp_dist:
+                    best_clamp_dist = dist_sq
+                    best_clamp = (w_bucket, h_bucket)
+            return best_clamp
 
         # Otherwise, stick with the closest fixed bucket
         return (best_w, best_h)
 
-    def calculate_size(self, image, preset: str):
+    def calculate_size(self, image, preset: str, method: str):
         
         _, h, w, _ = image.shape
 
-        if preset == "Nano Banana 1":
+        if preset == "NB 1":
             target_buckets = self.BUCKETS_NB1
-            version_info = "Nano Banana 1"
+            version_info = "NB 1"
         elif "1K" in preset:
             target_buckets = self.BUCKETS_NB2_1K
-            version_info = "Nano Banana 2 (1K)"
+            version_info = "NB 2 (1K)"
         elif "2K" in preset:
             target_buckets = self.BUCKETS_NB2_2K
-            version_info = "Nano Banana 2 (2K)"
+            version_info = "NB 2 (2K)"
         else:
             target_buckets = self.BUCKETS_NB2_4K
-            version_info = "Nano Banana 2 (4K)"
+            version_info = "NB 2 (4K)"
 
         # Calculate best size
-        w_out, h_out = self._closest_bucket(w, h, target_buckets)
+        w_out, h_out = self._closest_bucket(w, h, target_buckets, method)
         
         # Detect aspect ratio (Strict)
         aspect_ratio = self._detect_aspect_ratio(w_out, h_out)
+
+        buckets_set = set(target_buckets)
+        note = ""
+        if method != "Dynamic (legacy)" and (w_out, h_out) in buckets_set:
+            note = " • Supported"
+        elif (w_out, h_out) not in buckets_set:
+            note = " • (Not in fixed bucket list)"
         
-        info = f"{version_info} • {w_out}×{h_out} • AR: {aspect_ratio} • Input: {w}×{h}"
+        info = f"{version_info} • {w_out}×{h_out} • AR: {aspect_ratio} • Input: {w}×{h}{note}"
 
         return (w_out, h_out, info, aspect_ratio)
 
