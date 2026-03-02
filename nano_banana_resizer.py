@@ -112,7 +112,9 @@ class NanoBananaSizeCalculator:
         Strategy:
         - Determine the closest supported AR for the *input*.
         - Prefer buckets close to that AR (filter by tolerance).
-        - Within that filtered set, choose the closest bucket by size (distance), tie-breaking by area.
+        - Within that filtered set, compute the closest-by-size distance, then allow a small band
+          of near-best candidates and choose the *largest* one in that band. This matches Banana’s
+          tendency to prefer a “standard” slightly-larger bucket when both are plausible.
         """
         if h_in == 0 or not buckets:
             return buckets[0] if buckets else (1024, 1024)
@@ -141,8 +143,14 @@ class NanoBananaSizeCalculator:
             scored.sort(key=lambda x: x[0])
             filtered = scored[:8]
 
-        filtered.sort(key=lambda x: (x[1], x[0], x[2]))
-        best = filtered[0]
+        # Find the closest-by-size candidate, then allow a near-best band.
+        min_dist_sq = min(s[1] for s in filtered)
+        DIST_MULT = 2.0
+        near = [s for s in filtered if s[1] <= (min_dist_sq * DIST_MULT)]
+
+        # Prefer the largest area inside the near-best band, tie-breaking by distance/AR.
+        near.sort(key=lambda x: (x[2], x[1], x[0]))  # x[2] is -area
+        best = near[0]
         return (best[3], best[4])
 
     def _closest_bucket(
