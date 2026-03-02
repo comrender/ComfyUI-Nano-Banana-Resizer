@@ -104,6 +104,47 @@ class NanoBananaSizeCalculator:
         
         return best_ar_str
 
+    def _best_bucket_for_outlier(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
+        """
+        For very large inputs (true outliers), choosing by absolute pixel-distance can select
+        an extreme bucket (e.g. 1024×4096) just because it matches height.
+
+        Strategy:
+        - Determine the closest supported AR for the *input*.
+        - Prefer buckets close to that AR (filter by tolerance).
+        - Within that filtered set, choose the closest bucket by size (distance), tie-breaking by area.
+        """
+        if h_in == 0 or not buckets:
+            return buckets[0] if buckets else (1024, 1024)
+
+        target_ar_str = self._detect_aspect_ratio(w_in, h_in)
+        target_ar = self.SUPPORTED_ARS.get(target_ar_str, w_in / h_in)
+
+        scored = []  # (ar_diff, dist_sq, -area, w, h)
+        for w_bucket, h_bucket in buckets:
+            if h_bucket == 0:
+                continue
+            ar = w_bucket / h_bucket
+            ar_diff = abs(ar - target_ar)
+            dist_sq = (w_in - w_bucket) ** 2 + (h_in - h_bucket) ** 2
+            area = w_bucket * h_bucket
+            scored.append((ar_diff, dist_sq, -area, w_bucket, h_bucket))
+
+        if not scored:
+            return buckets[0]
+
+        # First try a reasonable AR tolerance around the target supported AR.
+        AR_TOL = 0.03
+        filtered = [s for s in scored if s[0] <= AR_TOL]
+        if not filtered:
+            # If nothing matches closely, fall back to the best AR matches.
+            scored.sort(key=lambda x: x[0])
+            filtered = scored[:8]
+
+        filtered.sort(key=lambda x: (x[1], x[0], x[2]))
+        best = filtered[0]
+        return (best[3], best[4])
+
     def _closest_bucket(
         self,
         w_in: int,
@@ -153,18 +194,9 @@ class NanoBananaSizeCalculator:
             if method == "Static":
                 return (best_w, best_h)
 
-            # Default/recommended: clamp the dynamic size to the closest real bucket.
-            # This mirrors Nano Banana behavior when it snaps unsupported sizes.
-            w_target = int(w_dynamic)
-            h_target = int(h_dynamic)
-            best_clamp_dist = float("inf")
-            best_clamp = (best_w, best_h)
-            for w_bucket, h_bucket in buckets:
-                dist_sq = (w_target - w_bucket) ** 2 + (h_target - h_bucket) ** 2
-                if dist_sq < best_clamp_dist:
-                    best_clamp_dist = dist_sq
-                    best_clamp = (w_bucket, h_bucket)
-            return best_clamp
+            # Default/recommended: pick a bucket by aspect ratio (then largest area).
+            # This avoids choosing extreme portrait/landscape buckets for large images.
+            return self._best_bucket_for_outlier(w_in, h_in, buckets)
 
         # Otherwise, stick with the closest fixed bucket
         return (best_w, best_h)
@@ -189,8 +221,8 @@ class NanoBananaSizeCalculator:
         # Calculate best size
         w_out, h_out = self._closest_bucket(w, h, target_buckets, method)
         
-        # Detect aspect ratio (Strict)
-        aspect_ratio = self._detect_aspect_ratio(w_out, h_out)
+        # Aspect ratio is based on the input image (what you want to preserve/transfer).
+        aspect_ratio = self._detect_aspect_ratio(w, h)
 
         buckets_set = set(target_buckets)
         note = ""
