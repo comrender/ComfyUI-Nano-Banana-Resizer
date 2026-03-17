@@ -23,6 +23,19 @@ class NanoBananaSizeCalculator:
         for ar in ASPECT_RATIOS
         if ar != "auto"
     }
+    # Preserve original bucket-selection behavior from legacy version.
+    LEGACY_BUCKET_ARS = {
+        "1:1": 1.0,
+        "3:2": 1.5,
+        "2:3": 0.666667,
+        "3:4": 0.75,
+        "4:3": 1.333333,
+        "4:5": 0.8,
+        "5:4": 1.25,
+        "9:16": 0.5625,
+        "16:9": 1.777778,
+        "21:9": 2.333333,
+    }
     GEMINI_ALLOWED_ARS = [
         "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3",
         "4:5", "5:4", "8:1", "9:16", "16:9", "21:9",
@@ -106,7 +119,7 @@ class NanoBananaSizeCalculator:
         min_diff = float('inf')
         best_ar_str = "1:1" 
 
-        for ar_str, ar_val in self.SUPPORTED_ARS.items():
+        for ar_str, ar_val in self.LEGACY_BUCKET_ARS.items():
             diff = abs(current_ar - ar_val)
             if diff < min_diff:
                 min_diff = diff
@@ -131,36 +144,6 @@ class NanoBananaSizeCalculator:
 
         return best_ar_str
 
-    def _closest_bucket_for_aspect(
-        self,
-        w_in: int,
-        h_in: int,
-        buckets: List[Tuple[int, int]],
-        aspect_ratio: str,
-    ) -> Tuple[int, int]:
-        """
-        Pick the nearest bucket constrained to a specific aspect ratio.
-        Falls back to all buckets if no ratio-matching bucket exists.
-        """
-        target_ar = self.GEMINI_ALLOWED_AR_VALUES.get(aspect_ratio)
-        if target_ar is None:
-            return self._closest_bucket(w_in, h_in, buckets, "Static")
-
-        AR_TOL = 0.005
-        filtered = []
-        for w_bucket, h_bucket in buckets:
-            if h_bucket == 0:
-                continue
-            if abs((w_bucket / h_bucket) - target_ar) <= AR_TOL:
-                filtered.append((w_bucket, h_bucket))
-
-        candidates_source = filtered if filtered else buckets
-        best = min(
-            candidates_source,
-            key=lambda wh: (w_in - wh[0]) ** 2 + (h_in - wh[1]) ** 2,
-        )
-        return best
-
     def _best_bucket_for_outlier(
         self,
         w_in: int,
@@ -182,7 +165,7 @@ class NanoBananaSizeCalculator:
             return buckets[0] if buckets else (1024, 1024)
 
         target_ar_str = self._detect_aspect_ratio(w_in, h_in)
-        target_ar = self.SUPPORTED_ARS.get(target_ar_str, w_in / h_in)
+        target_ar = self.LEGACY_BUCKET_ARS.get(target_ar_str, w_in / h_in)
 
         scored = []  # (ar_diff, dist_sq, -area, w, h)
         for w_bucket, h_bucket in buckets:
@@ -288,16 +271,11 @@ class NanoBananaSizeCalculator:
             target_buckets = self.BUCKETS_NB2_4K
             version_info = "NB 2 (4K)"
 
+        # Keep original sizing behavior from the old version.
+        w_out, h_out = self._closest_bucket(w, h, target_buckets, method)
+
         # Output AR must be Gemini-compatible for direct wiring into generation nodes.
         resolved_aspect_ratio = self._detect_gemini_aspect_ratio(w, h)
-
-        # Keep suggested size aligned with emitted AR for downstream nodes.
-        if method == "Dynamic (legacy)":
-            w_out, h_out = self._closest_bucket(w, h, target_buckets, method)
-        else:
-            w_out, h_out = self._closest_bucket_for_aspect(
-                w, h, target_buckets, resolved_aspect_ratio
-            )
 
         buckets_set = set(target_buckets)
         note = ""
