@@ -23,6 +23,14 @@ class NanoBananaSizeCalculator:
         for ar in ASPECT_RATIOS
         if ar != "auto"
     }
+    GEMINI_ALLOWED_ARS = [
+        "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3",
+        "4:5", "5:4", "8:1", "9:16", "16:9", "21:9",
+    ]
+    GEMINI_ALLOWED_AR_VALUES = {
+        ar: (int(ar.split(":")[0]) / int(ar.split(":")[1]))
+        for ar in GEMINI_ALLOWED_ARS
+    }
 
     # ──────────────────────────────────────────────────────────────
     # BUCKETS
@@ -104,6 +112,23 @@ class NanoBananaSizeCalculator:
                 min_diff = diff
                 best_ar_str = ar_str
         
+        return best_ar_str
+
+    def _detect_gemini_aspect_ratio(self, w: int, h: int) -> str:
+        """Finds the closest Gemini-accepted aspect ratio string for the given dimensions."""
+        if h == 0:
+            return "1:1"
+
+        current_ar = w / h
+        min_diff = float("inf")
+        best_ar_str = "1:1"
+
+        for ar_str, ar_val in self.GEMINI_ALLOWED_AR_VALUES.items():
+            diff = abs(current_ar - ar_val)
+            if diff < min_diff:
+                min_diff = diff
+                best_ar_str = ar_str
+
         return best_ar_str
 
     def _best_bucket_for_outlier(
@@ -236,7 +261,8 @@ class NanoBananaSizeCalculator:
         # Calculate best size
         w_out, h_out = self._closest_bucket(w, h, target_buckets, method)
         
-        resolved_aspect_ratio = self._detect_aspect_ratio(w, h)
+        # Output AR must be Gemini-compatible for direct wiring into generation nodes.
+        resolved_aspect_ratio = self._detect_gemini_aspect_ratio(w, h)
 
         buckets_set = set(target_buckets)
         note = ""
