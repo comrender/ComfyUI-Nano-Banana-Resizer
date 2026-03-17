@@ -9,18 +9,19 @@ from typing import Tuple, List
 import math
 
 class NanoBananaSizeCalculator:
-    # Supported Aspect Ratios for Nano Banana/Gemini API (W:H format)
+    # Supported aspect ratios (W:H format) plus auto mode.
+    ASPECT_RATIOS = [
+        "auto",
+        "1:1",
+        "9:16", "10:16", "2:3", "3:4", "4:5", "5:7", "8:11", "9:19", "1:2", "3:5",
+        "16:9", "16:10", "3:2", "4:3", "5:4", "7:5", "11:8", "19:9", "2:1", "5:3",
+        "21:9", "32:9", "239:100",
+        "4:1", "1:4", "8:1", "1:8",
+    ]
     SUPPORTED_ARS = {
-        "1:1": 1.0, 
-        "3:2": 1.5, 
-        "2:3": 0.666667, # Precise 2/3
-        "3:4": 0.75, 
-        "4:3": 1.333333, # Precise 4/3
-        "4:5": 0.8, 
-        "5:4": 1.25, 
-        "9:16": 0.5625, 
-        "16:9": 1.777778, # Precise 16/9
-        "21:9": 2.333333
+        ar: (int(ar.split(":")[0]) / int(ar.split(":")[1]))
+        for ar in ASPECT_RATIOS
+        if ar != "auto"
     }
 
     # ──────────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ class NanoBananaSizeCalculator:
             }
         }
 
-    RETURN_TYPES = ("INT", "INT", "STRING", "*")
+    RETURN_TYPES = ("INT", "INT", "STRING", "STRING")
     RETURN_NAMES = ("width", "height", "info", "aspect_ratio")
     FUNCTION = "calculate_size"
     CATEGORY = "image/transform"
@@ -105,7 +106,12 @@ class NanoBananaSizeCalculator:
         
         return best_ar_str
 
-    def _best_bucket_for_outlier(self, w_in: int, h_in: int, buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
+    def _best_bucket_for_outlier(
+        self,
+        w_in: int,
+        h_in: int,
+        buckets: List[Tuple[int, int]],
+    ) -> Tuple[int, int]:
         """
         For very large inputs (true outliers), choosing by absolute pixel-distance can select
         an extreme bucket (e.g. 1024×4096) just because it matches height.
@@ -230,8 +236,7 @@ class NanoBananaSizeCalculator:
         # Calculate best size
         w_out, h_out = self._closest_bucket(w, h, target_buckets, method)
         
-        # Aspect ratio is based on the input image (what you want to preserve/transfer).
-        aspect_ratio = self._detect_aspect_ratio(w, h)
+        resolved_aspect_ratio = self._detect_aspect_ratio(w, h)
 
         buckets_set = set(target_buckets)
         note = ""
@@ -240,9 +245,9 @@ class NanoBananaSizeCalculator:
         elif (w_out, h_out) not in buckets_set:
             note = " • (Not in fixed bucket list)"
         
-        info = f"{version_info} • {w_out}×{h_out} • AR: {aspect_ratio} • Input: {w}×{h}{note}"
+        info = f"{version_info} • {w_out}×{h_out} • AR: {resolved_aspect_ratio} • Input: {w}×{h}{note}"
 
-        return (w_out, h_out, info, aspect_ratio)
+        return (w_out, h_out, info, resolved_aspect_ratio)
 
 NODE_CLASS_MAPPINGS = {"NanoBananaSizeCalculator": NanoBananaSizeCalculator}
 NODE_DISPLAY_NAME_MAPPINGS = {"NanoBananaSizeCalculator": "Nano Banana Size Calculator"}
